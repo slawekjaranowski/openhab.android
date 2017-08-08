@@ -36,6 +36,8 @@ class MyKeyManager implements X509KeyManager {
     private static X509Certificate[] certificateChain;
     private static PrivateKey privateKey;
 
+    private static Thread readKeysThread;
+
     private MyKeyManager(final Context ctx) {
 
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(ctx);
@@ -48,22 +50,41 @@ class MyKeyManager implements X509KeyManager {
             return;
         }
 
-        if (!preferencesAlias.equals(alias) || certificateChain == null || privateKey == null) {
+        if (readKeysThread == null && (!preferencesAlias.equals(alias) || certificateChain == null || privateKey == null)) {
+
+            alias = preferencesAlias;
 
             // refresh cached certificate and  keys
-            new Thread(new Runnable() {
+            readKeysThread = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     try {
+                        Log.i(TAG, "refresh keys - start");
                         certificateChain = KeyChain.getCertificateChain(ctx, preferencesAlias);
                         privateKey = KeyChain.getPrivateKey(ctx, preferencesAlias);
-                        alias = preferencesAlias;
+                        Log.i(TAG, "refresh keys - finish");
                     } catch (KeyChainException | InterruptedException e) {
                         Log.e(TAG, e.getMessage(), e);
                     }
                 }
-            }).start();
+            });
+
+            readKeysThread.start();
         }
+    }
+
+    private void waitForReadKeysThread() {
+        if (readKeysThread == null) {
+            return;
+        }
+
+        Log.d(TAG, "waitForReadKeysThread");
+        try {
+            readKeysThread.join();
+        } catch (InterruptedException e) {
+            Log.d(TAG, e.getMessage(), e);
+        }
+        readKeysThread = null;
     }
 
     public static KeyManager[] getInstance(Context ctx) {
@@ -85,6 +106,7 @@ class MyKeyManager implements X509KeyManager {
     @Override
     public X509Certificate[] getCertificateChain(String alias) {
         Log.d(TAG, "getCertificateChain");
+        waitForReadKeysThread();
         return certificateChain;
     }
 
@@ -103,6 +125,7 @@ class MyKeyManager implements X509KeyManager {
     @Override
     public PrivateKey getPrivateKey(String alias) {
         Log.d(TAG, "getPrivateKey");
+        waitForReadKeysThread();
         return privateKey;
     }
 }
